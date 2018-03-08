@@ -43,9 +43,8 @@ type Client struct {
 	Qos                 int    // qos of subscribe
 	MsgExpirationEnable bool   // enable or disable message expiration
 	ExpirationTime      int32  // expiration time of message
+	DeliveryMode        uint8  // delivery mode of message
 	PublishStatus       bool   // publish status
-
-	Session *Session
 }
 
 // SetURL 设置客户端的连接信息
@@ -92,6 +91,11 @@ func (c *Client) SetExpirationTime(time int32) {
 	c.ExpirationTime = time
 }
 
+// SetDeliveryMode 设置消息投递模式
+func (c *Client) SetDeliveryMode(dMode uint8) {
+	c.DeliveryMode = dMode
+}
+
 // SetPublishStatus 设置生产者状态
 func (c *Client) SetPublishStatus(status bool) {
 	c.PublishStatus = status
@@ -113,6 +117,7 @@ func (c *Client) Info() {
 	fmt.Println("rmq qos:", c.Qos)
 	fmt.Println("rmq msg expiration enable:", c.MsgExpirationEnable)
 	fmt.Println("rmq expiration time:", c.ExpirationTime)
+	fmt.Println("rmq delivery mode:", c.DeliveryMode)
 
 	GLog.Info("[RMQ] info, url: %s", c.URL)
 	GLog.Info("[RMQ] info, exchange: %s", c.Exchange)
@@ -123,6 +128,25 @@ func (c *Client) Info() {
 	GLog.Info("[RMQ] info, qos: %d", c.Qos)
 	GLog.Info("[RMQ] info, msg expiration enable: %q", c.MsgExpirationEnable)
 	GLog.Info("[RMQ] info, expiration time: %d", c.ExpirationTime)
+	GLog.Info("[RMQ] info, delivery mode: %d", c.DeliveryMode)
+}
+
+// NewClient 创建一个默认的客户端信息
+func NewClient() *Client {
+	c := &Client{
+		URL:                 "",
+		Exchange:            "",
+		ExchangeType:        ExchangeFanout,
+		QueueBindEnable:     false,
+		QueueName:           "",
+		RoutingKey:          "GiterLab",
+		Qos:                 1,
+		MsgExpirationEnable: false,
+		ExpirationTime:      7 * 24 * 60 * 60 * 1000,
+		DeliveryMode:        Persistent,
+		PublishStatus:       false,
+	}
+	return c
 }
 
 // Identity returns the same host/process unique string for the lifetime of
@@ -149,7 +173,7 @@ func (c *Client) Identity() string {
 	fmt.Fprint(h, hostname)
 	fmt.Fprint(h, err)
 	fmt.Fprint(h, os.Getpid())
-	return fmt.Sprintf("%x", h.Sum(nil))
+	return fmt.Sprintf("GiterLab-%x", h.Sum(nil))
 }
 
 // redial continually connects to the URL, exiting the program when no longer possible
@@ -292,4 +316,142 @@ func redial(ctx context.Context, c *Client) chan chan Session {
 	}()
 
 	return sessions
+}
+
+// publish publishes messages to a reconnecting session to a fanout exchange.
+// It receives from the application specific source of messages.
+func publish(sessions chan chan Session, messagesRead <-chan Message, messagesWrite chan<- Message, c *Client) {
+	var (
+		running bool
+		reading = messagesRead
+		pending = make(chan Message, 1)
+		confirm = make(chan amqp.Confirmation, 1)
+	)
+	defer func() {
+		running = false
+		close(pending)
+	}()
+
+	for session := range sessions {
+		pub := <-session
+
+		// publisher confirms for this channel/connection
+		if err := pub.Confirm(false); err != nil {
+			GLog.Error("[RMQ] publish, publisher confirms not supported, err: %s", err)
+			c.SetPublishStatus(false)
+			close(confirm) // confirms not supported, simulate by always nacking
+		} else {
+			confirm = make(chan amqp.Confirmation, 1)
+			pub.NotifyPublish(confirm)
+		}
+
+		GLog.Info("[RMQ] publish, publishing...")
+		c.SetPublishStatus(true)
+
+	Publish:
+		for {
+			var body Message
+			select {
+			case confirmed, ok := <-confirm:
+				if !ok {
+					c.SetPublishStatus(false)
+					reading = messagesRead
+					break Publish
+				}
+				if !confirmed.Ack {
+					GLog.Error("[RMQ] publish, nack message %d, body: %q", confirmed.DeliveryTag, string(body))
+				}
+				reading = messagesRead
+
+			case body = <-pending:
+				defer func() {
+					//  Retry failed delivery on the next session
+					messagesWrite <- body // write back
+				}()
+				err := pub.Publish(c.Exchange, "duoxieyun", false, false, amqp.Publishing{
+					ContentType:  "text/plain",
+					Body:         body,
+					DeliveryMode: c.DeliveryMode, // 数据持久化, 默认是 2 持久
+				})
+				// Retry failed delivery on the next session
+				if err != nil {
+					c.SetPublishStatus(false)
+					if cap(pending) == 1 && len(pending) == 0 {
+						pending <- body
+					} else {
+						messagesWrite <- body // write back
+					}
+					pub.Close()
+					GLog.Error("[RMQ] publish, pub close, err: %s", err)
+					break Publish
+				}
+
+			case body, running = <-reading:
+				// all messages consumed
+				if !running {
+					c.SetPublishStatus(false)
+					GLog.Error("[RMQ] publish, close running")
+					return
+				}
+				// work on pending delivery until ack'd
+				if cap(pending) == 1 && len(pending) == 0 {
+					pending <- body
+				} else {
+					messagesWrite <- body // write back
+				}
+				reading = nil
+			}
+		}
+	}
+}
+
+// subscribe consumes deliveries from an exclusive queue from
+// a fanout exchange and sends to the application specific messages chan.
+func subscribe(sessions chan chan Session, handle CallBack, c *Client) {
+	queue := c.Identity()
+	qos := c.Qos
+	if qos == 0 {
+		qos = 1
+	}
+
+	for session := range sessions {
+		sub := <-session
+
+		// 1. Set Qos
+		err := sub.Qos(
+			qos,   // prefetch count
+			0,     // prefetch size
+			false, // global
+		)
+		if err != nil {
+			GLog.Error("[RMQ] subscribe, cannot to set qos to: %q, err: %s", queue, err)
+		}
+
+		// 2. Consume
+		deliveries, err := sub.Consume(
+			queue, // queue
+			"",    // consumer
+			false, // auto-ack
+			false, // exclusive
+			false, // no-local
+			false, // no-wait
+			nil,   // args
+		)
+		if err != nil {
+			GLog.Error("[RMQ] subscribe, cannot consume from: %q, %v", queue, err)
+		}
+
+		GLog.Info("[RMQ] subscribe, subscribed...")
+
+		for msg := range deliveries {
+			// handle msg
+			if handle != nil {
+				handle(msg.Body)
+			}
+			err := sub.Ack(msg.DeliveryTag, false)
+			if err != nil {
+				GLog.Error("[RMQ] subscribe, ack failed, err: %s", err)
+			}
+		}
+	}
 }
