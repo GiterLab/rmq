@@ -137,7 +137,7 @@ func NewClient() *Client {
 		URL:                 "",
 		Exchange:            "",
 		ExchangeType:        ExchangeFanout,
-		QueueBindEnable:     false,
+		QueueBindEnable:     true,
 		QueueName:           "",
 		RoutingKey:          "GiterLab",
 		Qos:                 1,
