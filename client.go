@@ -122,11 +122,11 @@ func (c *Client) Info() {
 	GLog.Info("[RMQ] info, url: %s", c.URL)
 	GLog.Info("[RMQ] info, exchange: %s", c.Exchange)
 	GLog.Info("[RMQ] info, exchange type: %s", c.ExchangeType)
-	GLog.Info("[RMQ] info, queue bing enable: %q", c.QueueBindEnable)
+	GLog.Info("[RMQ] info, queue bing enable: %v", c.QueueBindEnable)
 	GLog.Info("[RMQ] info, queue name: %s", c.QueueName)
 	GLog.Info("[RMQ] info, routing key: %s", c.RoutingKey)
 	GLog.Info("[RMQ] info, qos: %d", c.Qos)
-	GLog.Info("[RMQ] info, msg expiration enable: %q", c.MsgExpirationEnable)
+	GLog.Info("[RMQ] info, msg expiration enable: %v", c.MsgExpirationEnable)
 	GLog.Info("[RMQ] info, expiration time: %d", c.ExpirationTime)
 	GLog.Info("[RMQ] info, delivery mode: %d", c.DeliveryMode)
 }
