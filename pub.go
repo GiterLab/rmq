@@ -24,3 +24,24 @@ func Publish(messages chan Message, c *Client) {
 		}
 	}(messages, c)
 }
+
+// PublishWithRoutingKey rabbitmq publish
+func PublishWithRoutingKey(messages chan MessageWithRoutingKey, c *Client) {
+	go func(messages chan MessageWithRoutingKey, c *Client) {
+		for {
+			ctx, done := context.WithCancel(context.Background())
+			go func(messages chan MessageWithRoutingKey, c *Client) {
+				defer func() {
+					// recover panic
+					if err := recover(); err != nil {
+						GLog.Error("[RMQ] PublishWithRoutingKey panic, go func defer, err: %s", err)
+					}
+					done()
+				}()
+				publishWithRoutingKey(redial(ctx, c), messages, messages, c)
+				GLog.Info("[RMQ] PublishWithRoutingKey reconnect...")
+			}(messages, c)
+			<-ctx.Done()
+		}
+	}(messages, c)
+}

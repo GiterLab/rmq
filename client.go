@@ -15,6 +15,12 @@ import (
 // for further demuxing.
 type Message []byte
 
+// MessageWithRoutingKey is the application type for a message with routing key
+type MessageWithRoutingKey struct {
+	RoutingKey string
+	Message    []byte
+}
+
 // CallBack callback function
 type CallBack func(msg []byte)
 
@@ -48,11 +54,11 @@ type Client struct {
 }
 
 // SetURL 设置客户端的连接信息
-func (c *Client) SetURL(url, vhost, username, passwd string) {
+func (c *Client) SetURL(url, vhost, username, password string) {
 	if vhost[0] != '/' {
 		vhost = "/" + vhost
 	}
-	c.URL = "amqp://" + username + ":" + passwd + "@" + url + vhost
+	c.URL = "amqp://" + username + ":" + password + "@" + url + vhost
 }
 
 // SetExchange 设置交换器信息
@@ -255,6 +261,7 @@ func redial(ctx context.Context, c *Client) chan chan Session {
 				goto redial_rmq
 			}
 
+			// 是否需要绑定消息队列
 			if c.QueueBindEnable {
 				// 设置消息过期时间
 				// 默认7天
@@ -285,9 +292,9 @@ func redial(ctx context.Context, c *Client) chan chan Session {
 					goto redial_rmq
 				}
 
-				// set routhing key, default is giterlab
+				// set routhing key, default is GiterLab
 				if c.RoutingKey == "" {
-					c.RoutingKey = "giterlab"
+					c.RoutingKey = "GiterLab"
 				}
 
 				// 3. Bind queue
@@ -371,6 +378,93 @@ func publish(sessions chan chan Session, messagesRead <-chan Message, messagesWr
 				err := pub.Publish(c.Exchange, "duoxieyun", false, false, amqp.Publishing{
 					ContentType:  "text/plain",
 					Body:         body,
+					DeliveryMode: c.DeliveryMode, // 数据持久化, 默认是 2 持久
+				})
+				// Retry failed delivery on the next session
+				if err != nil {
+					c.SetPublishStatus(false)
+					if cap(pending) == 1 && len(pending) == 0 {
+						pending <- body
+					} else {
+						messagesWrite <- body // write back
+					}
+					pub.Close()
+					GLog.Error("[RMQ] publish, pub close, err: %s", err)
+					break Publish
+				}
+
+			case body, running = <-reading:
+				// all messages consumed
+				if !running {
+					c.SetPublishStatus(false)
+					GLog.Error("[RMQ] publish, close running")
+					return
+				}
+				// work on pending delivery until ack'd
+				if cap(pending) == 1 && len(pending) == 0 {
+					pending <- body
+				} else {
+					messagesWrite <- body // write back
+				}
+				reading = nil
+			}
+		}
+	}
+}
+
+// publish publishes messages to a reconnecting session to a fanout exchange.
+// It receives from the application specific source of messages.
+func publishWithRoutingKey(sessions chan chan Session, messagesRead <-chan MessageWithRoutingKey, messagesWrite chan<- MessageWithRoutingKey, c *Client) {
+	var (
+		running bool
+		reading = messagesRead
+		pending = make(chan MessageWithRoutingKey, 1)
+		confirm = make(chan amqp.Confirmation, 1)
+	)
+	defer func() {
+		running = false
+		close(pending)
+	}()
+
+	for session := range sessions {
+		pub := <-session
+
+		// publisher confirms for this channel/connection
+		if err := pub.Confirm(false); err != nil {
+			GLog.Error("[RMQ] publish, publisher confirms not supported, err: %s", err)
+			c.SetPublishStatus(false)
+			close(confirm) // confirms not supported, simulate by always nacking
+		} else {
+			confirm = make(chan amqp.Confirmation, 1)
+			pub.NotifyPublish(confirm)
+		}
+
+		GLog.Info("[RMQ] publish, publishing...")
+		c.SetPublishStatus(true)
+
+	Publish:
+		for {
+			var body MessageWithRoutingKey
+			select {
+			case confirmed, ok := <-confirm:
+				if !ok {
+					c.SetPublishStatus(false)
+					reading = messagesRead
+					break Publish
+				}
+				if !confirmed.Ack {
+					GLog.Error("[RMQ] publish, nack message %d, body.RoutingKey: %s, body.Message: %q", confirmed.DeliveryTag, body.RoutingKey, string(body.Message))
+				}
+				reading = messagesRead
+
+			case body = <-pending:
+				defer func() {
+					//  Retry failed delivery on the next session
+					messagesWrite <- body // write back
+				}()
+				err := pub.Publish(c.Exchange, body.RoutingKey, false, false, amqp.Publishing{
+					ContentType:  "text/plain",
+					Body:         body.Message,
 					DeliveryMode: c.DeliveryMode, // 数据持久化, 默认是 2 持久
 				})
 				// Retry failed delivery on the next session
