@@ -1,6 +1,9 @@
 package main
 
 import (
+	"fmt"
+	"time"
+
 	"github.com/GiterLab/rmq"
 	"github.com/astaxie/beego/logs"
 )
@@ -13,10 +16,12 @@ const (
 	vhost    = "/"
 	username = "guest"
 	password = "guest"
-	exchange = "giterlabrmq"
+	exchange = "giterlab-pub-fanout"
 )
 
 func main() {
+	var msgChan chan rmq.Message
+
 	// 设置日志
 	GLog = logs.NewLogger(10000)
 	GLog.SetLogger("console", `{"level":7}`)
@@ -32,5 +37,14 @@ func main() {
 	c.SetRoutingKey("giterlab")
 	c.SetQueueName("giterlab-queue")
 	c.Info()
-	// rmq.Publish(messages, c)
+
+	// 发布消息
+	msgChan = make(chan rmq.Message, 100)
+	rmq.Publish(msgChan, c)
+	for i := 0; i < 1000; i++ {
+		msgChan <- []byte(fmt.Sprintf("giterlab-msg-%d", i))
+	}
+
+	// wait a moment
+	time.Sleep(2 * time.Second)
 }
