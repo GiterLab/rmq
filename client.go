@@ -371,10 +371,6 @@ func publish(sessions chan chan Session, messagesRead <-chan Message, messagesWr
 				reading = messagesRead
 
 			case body = <-pending:
-				defer func() {
-					//  Retry failed delivery on the next session
-					messagesWrite <- body // write back
-				}()
 				err := pub.Publish(c.Exchange, "duoxieyun", false, false, amqp.Publishing{
 					ContentType:  "text/plain",
 					Body:         body,
