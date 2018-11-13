@@ -454,10 +454,6 @@ func publishWithRoutingKey(sessions chan chan Session, messagesRead <-chan Messa
 				reading = messagesRead
 
 			case body = <-pending:
-				defer func() {
-					//  Retry failed delivery on the next session
-					messagesWrite <- body // write back
-				}()
 				err := pub.Publish(c.Exchange, body.RoutingKey, false, false, amqp.Publishing{
 					ContentType:  "text/plain",
 					Body:         body.Message,
