@@ -41,6 +41,7 @@ func (s Session) Close() error {
 // Client rabbitmq客户端信息
 type Client struct {
 	URL                 string // rmqurl used to connect rabbitmq services
+	ExchangeEnable      bool   // enable or disable queue bind
 	Exchange            string // exchange binds the publishers to the subscribers
 	ExchangeType        string // type of exchange
 	QueueBindEnable     bool   // enable or disable queue bind
@@ -59,6 +60,11 @@ func (c *Client) SetURL(url, vhost, username, password string) {
 		vhost = "/" + vhost
 	}
 	c.URL = "amqp://" + username + ":" + password + "@" + url + vhost
+}
+
+// SetExchangeEnable 设置是否需要定义交换器
+func (c *Client) SetExchangeEnable(enable bool) {
+	c.ExchangeEnable = enable
 }
 
 // SetExchange 设置交换器信息
@@ -141,6 +147,7 @@ func (c *Client) Info() {
 func NewClient() *Client {
 	c := &Client{
 		URL:                 "",
+		ExchangeEnable:     true,
 		Exchange:            "",
 		ExchangeType:        ExchangeFanout,
 		QueueBindEnable:     true,
@@ -243,22 +250,25 @@ func redial(ctx context.Context, c *Client) chan chan Session {
 				goto redial_rmq
 			}
 
-			// 1. Declare exchange
-			err = ch.ExchangeDeclare(
-				c.Exchange,     // name
-				c.ExchangeType, // type
-				true,           // durable
-				false,          // auto-deleted
-				false,          // internal
-				false,          // no-wait
-				nil,            // arguments
-			)
-			if err != nil {
-				GLog.Error("[RMQ] redial, cannot declare fanout exchange, err: %s", err)
-				if conn != nil {
-					conn.Close()
+			// 是否需要定义交换器
+			if c.ExchangeEnable {
+				// 1. Declare exchange
+				err = ch.ExchangeDeclare(
+					c.Exchange,     // name
+					c.ExchangeType, // type
+					true,           // durable
+					false,          // auto-deleted
+					false,          // internal
+					false,          // no-wait
+					nil,            // arguments
+				)
+				if err != nil {
+					GLog.Error("[RMQ] redial, cannot declare fanout exchange, err: %s", err)
+					if conn != nil {
+						conn.Close()
+					}
+					goto redial_rmq
 				}
-				goto redial_rmq
 			}
 
 			// 是否需要绑定消息队列
