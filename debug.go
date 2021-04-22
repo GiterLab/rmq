@@ -1,30 +1,57 @@
 package rmq
 
 import (
-	"github.com/astaxie/beego/logs"
+	"log"
+)
+
+const (
+	LevelEmergency = iota
+	LevelAlert
+	LevelCritical
+	LevelError
+	LevelWarning
+	LevelNotice
+	LevelInformational
+	LevelDebug
 )
 
 var debugEnable bool
 
-// GLog debug log
-var GLog *logs.BeeLogger
+type TraceFunc func(format string, level int, v ...interface{})
+
+var DoFunc TraceFunc = nil
 
 func init() {
 	debugEnable = false
-	GLog = logs.NewLogger(10000)
-	GLog.SetLogger("console", `{"level":7}`)
-	GLog.EnableFuncCallDepth(true)
-	GLog.SetLogFuncCallDepth(3)
+	log.SetPrefix("[RMQ] TRACE: ")
+	log.SetFlags(log.Ldate | log.Lmicroseconds | log.Llongfile)
+}
+
+func AddDebugFunc(f TraceFunc) {
+	DoFunc = f
 }
 
 // Debug Enable debug
 func Debug(enable bool) {
 	debugEnable = enable
 }
-
-// SetLogger Set new logger
-func SetLogger(l *logs.BeeLogger) {
-	if l != nil {
-		GLog = l
+func TraceInfo(format string, v ...interface{}) {
+	if debugEnable {
+		log.Printf(format, v...)
 	}
+}
+func TraceError(format string, v ...interface{}) {
+	if DoFunc != nil {
+		DoFunc(format, LevelError, v)
+	}
+
+	if debugEnable {
+		log.Printf(format, v...)
+	}
+
+}
+
+//Deprecated: use SetDebugger instead
+func SetLogger(l ...interface{}) {
+
 }

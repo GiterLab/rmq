@@ -13,12 +13,12 @@ func Publish(messages chan Message, c *Client) {
 				defer func() {
 					// recover panic
 					if err := recover(); err != nil {
-						GLog.Error("[RMQ] Publish panic, go func defer, err: %s", err)
+						TraceError("[RMQ] Publish panic, go func defer, err: %s", err)
 					}
 					done()
 				}()
 				publish(redial(ctx, c), messages, messages, c)
-				GLog.Info("[RMQ] Publish reconnect...")
+				TraceInfo("[RMQ] Publish reconnect...")
 			}(messages, c)
 			<-ctx.Done()
 		}
@@ -34,12 +34,12 @@ func PublishWithRoutingKey(messages chan MessageWithRoutingKey, c *Client) {
 				defer func() {
 					// recover panic
 					if err := recover(); err != nil {
-						GLog.Error("[RMQ] PublishWithRoutingKey panic, go func defer, err: %s", err)
+						TraceError("[RMQ] PublishWithRoutingKey panic, go func defer, err: %s", err)
 					}
 					done()
 				}()
 				publishWithRoutingKey(redial(ctx, c), messages, messages, c)
-				GLog.Info("[RMQ] PublishWithRoutingKey reconnect...")
+				TraceInfo("[RMQ] PublishWithRoutingKey reconnect...")
 			}(messages, c)
 			<-ctx.Done()
 		}

@@ -13,12 +13,12 @@ func Subscribe(handle CallBack, c *Client) {
 				defer func() {
 					// recover panic
 					if err := recover(); err != nil {
-						GLog.Error("[RMQ] Subscribe panic, go func defer, err: %s", err)
+						TraceError("[RMQ] Subscribe panic, go func defer, err: %s", err)
 					}
 					done()
 				}()
 				subscribe(redial(ctx, c), handle, c)
-				GLog.Info("[RMQ] Subscribe reconnect...")
+				TraceInfo("[RMQ] Subscribe reconnect...")
 			}(handle, c)
 			<-ctx.Done()
 		}

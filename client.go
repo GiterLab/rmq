@@ -131,23 +131,23 @@ func (c *Client) Info() {
 	fmt.Println("rmq expiration time:", c.ExpirationTime)
 	fmt.Println("rmq delivery mode:", c.DeliveryMode)
 
-	GLog.Info("[RMQ] info, url: %s", c.URL)
-	GLog.Info("[RMQ] info, exchange: %s", c.Exchange)
-	GLog.Info("[RMQ] info, exchange type: %s", c.ExchangeType)
-	GLog.Info("[RMQ] info, queue bind enable: %v", c.QueueBindEnable)
-	GLog.Info("[RMQ] info, queue name: %s", c.QueueName)
-	GLog.Info("[RMQ] info, routing key: %s", c.RoutingKey)
-	GLog.Info("[RMQ] info, qos: %d", c.Qos)
-	GLog.Info("[RMQ] info, msg expiration enable: %v", c.MsgExpirationEnable)
-	GLog.Info("[RMQ] info, expiration time: %d", c.ExpirationTime)
-	GLog.Info("[RMQ] info, delivery mode: %d", c.DeliveryMode)
+	TraceInfo("[RMQ] info, url: %s", c.URL)
+	TraceInfo("[RMQ] info, exchange: %s", c.Exchange)
+	TraceInfo("[RMQ] info, exchange type: %s", c.ExchangeType)
+	TraceInfo("[RMQ] info, queue bind enable: %v", c.QueueBindEnable)
+	TraceInfo("[RMQ] info, queue name: %s", c.QueueName)
+	TraceInfo("[RMQ] info, routing key: %s", c.RoutingKey)
+	TraceInfo("[RMQ] info, qos: %d", c.Qos)
+	TraceInfo("[RMQ] info, msg expiration enable: %v", c.MsgExpirationEnable)
+	TraceInfo("[RMQ] info, expiration time: %d", c.ExpirationTime)
+	TraceInfo("[RMQ] info, delivery mode: %d", c.DeliveryMode)
 }
 
 // NewClient 创建一个默认的客户端信息
 func NewClient() *Client {
 	c := &Client{
 		URL:                 "",
-		ExchangeEnable:     true,
+		ExchangeEnable:      true,
 		Exchange:            "",
 		ExchangeType:        ExchangeFanout,
 		QueueBindEnable:     true,
@@ -206,7 +206,7 @@ func redial(ctx context.Context, c *Client) chan chan Session {
 		sess := make(chan Session)
 		defer func() {
 			if err := recover(); err != nil {
-				GLog.Error("[RMQ] redial, go func defer, err: %s", err)
+				TraceError("[RMQ] redial, go func defer, err: %s", err)
 			}
 			close(sess)
 			close(sessions)
@@ -217,7 +217,7 @@ func redial(ctx context.Context, c *Client) chan chan Session {
 			select {
 			case sessions <- sess:
 			case <-ctx.Done():
-				GLog.Error("[RMQ] redial, shutting down session factory")
+				TraceError("[RMQ] redial, shutting down session factory")
 				// if the conn is not close, close it first
 				if conn != nil {
 					conn.Close()
@@ -228,13 +228,13 @@ func redial(ctx context.Context, c *Client) chan chan Session {
 		redial_rmq:
 			c.SetPublishStatus(false)
 			time.Sleep(2 * time.Second)
-			GLog.Info("[RMQ] redial, start to connect to rmq...")
+			TraceInfo("[RMQ] redial, start to connect to rmq...")
 			if conn != nil {
 				conn.Close()
 			}
 			conn, err = amqp.Dial(c.URL)
 			if err != nil {
-				GLog.Error("[RMQ] redial, cannot (re)dial: %q, err: %s", c.URL, err)
+				TraceError("[RMQ] redial, cannot (re)dial: %q, err: %s", c.URL, err)
 				if conn != nil {
 					conn.Close()
 				}
@@ -243,7 +243,7 @@ func redial(ctx context.Context, c *Client) chan chan Session {
 
 			ch, err := conn.Channel()
 			if err != nil {
-				GLog.Error("[RMQ] redial, cannot create channel, err: %s", err)
+				TraceError("[RMQ] redial, cannot create channel, err: %s", err)
 				if conn != nil {
 					conn.Close()
 				}
@@ -263,7 +263,7 @@ func redial(ctx context.Context, c *Client) chan chan Session {
 					nil,            // arguments
 				)
 				if err != nil {
-					GLog.Error("[RMQ] redial, cannot declare fanout exchange, err: %s", err)
+					TraceError("[RMQ] redial, cannot declare fanout exchange, err: %s", err)
 					if conn != nil {
 						conn.Close()
 					}
@@ -295,7 +295,7 @@ func redial(ctx context.Context, c *Client) chan chan Session {
 					arg,         // arguments
 				)
 				if err != nil {
-					GLog.Error("[RMQ] redial, cannot consume from exclusive queue: %q, err: %s", c.QueueName, err)
+					TraceError("[RMQ] redial, cannot consume from exclusive queue: %q, err: %s", c.QueueName, err)
 					if conn != nil {
 						conn.Close()
 					}
@@ -315,7 +315,7 @@ func redial(ctx context.Context, c *Client) chan chan Session {
 					false,
 					nil)
 				if err != nil {
-					GLog.Error("[RMQ] redial, cannot consume without a binding to exchange: %q, err: %s", c.Exchange, err)
+					TraceError("[RMQ] redial, cannot consume without a binding to exchange: %q, err: %s", c.Exchange, err)
 					if conn != nil {
 						conn.Close()
 					}
@@ -326,7 +326,7 @@ func redial(ctx context.Context, c *Client) chan chan Session {
 			select {
 			case sess <- Session{conn, ch}:
 			case <-ctx.Done():
-				GLog.Error("[RMQ] redial, shutting down new session")
+				TraceError("[RMQ] redial, shutting down new session")
 				return
 			}
 		}
@@ -354,7 +354,7 @@ func publish(sessions chan chan Session, messagesRead <-chan Message, messagesWr
 
 		// publisher confirms for this channel/connection
 		if err := pub.Confirm(false); err != nil {
-			GLog.Error("[RMQ] publish, publisher confirms not supported, err: %s", err)
+			TraceError("[RMQ] publish, publisher confirms not supported, err: %s", err)
 			c.SetPublishStatus(false)
 			close(confirm) // confirms not supported, simulate by always nacking
 		} else {
@@ -362,7 +362,7 @@ func publish(sessions chan chan Session, messagesRead <-chan Message, messagesWr
 			pub.NotifyPublish(confirm)
 		}
 
-		GLog.Info("[RMQ] publish, publishing...")
+		TraceInfo("[RMQ] publish, publishing...")
 		c.SetPublishStatus(true)
 
 	Publish:
@@ -376,7 +376,7 @@ func publish(sessions chan chan Session, messagesRead <-chan Message, messagesWr
 					break Publish
 				}
 				if !confirmed.Ack {
-					GLog.Error("[RMQ] publish, nack message %d, body: %q", confirmed.DeliveryTag, string(body))
+					TraceError("[RMQ] publish, nack message %d, body: %q", confirmed.DeliveryTag, string(body))
 				}
 				reading = messagesRead
 
@@ -395,7 +395,7 @@ func publish(sessions chan chan Session, messagesRead <-chan Message, messagesWr
 						messagesWrite <- body // write back
 					}
 					pub.Close()
-					GLog.Error("[RMQ] publish, pub close, err: %s", err)
+					TraceError("[RMQ] publish, pub close, err: %s", err)
 					break Publish
 				}
 
@@ -403,7 +403,7 @@ func publish(sessions chan chan Session, messagesRead <-chan Message, messagesWr
 				// all messages consumed
 				if !running {
 					c.SetPublishStatus(false)
-					GLog.Error("[RMQ] publish, close running")
+					TraceError("[RMQ] publish, close running")
 					return
 				}
 				// work on pending delivery until ack'd
@@ -437,7 +437,7 @@ func publishWithRoutingKey(sessions chan chan Session, messagesRead <-chan Messa
 
 		// publisher confirms for this channel/connection
 		if err := pub.Confirm(false); err != nil {
-			GLog.Error("[RMQ] publish, publisher confirms not supported, err: %s", err)
+			TraceError("[RMQ] publish, publisher confirms not supported, err: %s", err)
 			c.SetPublishStatus(false)
 			close(confirm) // confirms not supported, simulate by always nacking
 		} else {
@@ -445,7 +445,7 @@ func publishWithRoutingKey(sessions chan chan Session, messagesRead <-chan Messa
 			pub.NotifyPublish(confirm)
 		}
 
-		GLog.Info("[RMQ] publish, publishing...")
+		TraceInfo("[RMQ] publish, publishing...")
 		c.SetPublishStatus(true)
 
 	Publish:
@@ -459,7 +459,7 @@ func publishWithRoutingKey(sessions chan chan Session, messagesRead <-chan Messa
 					break Publish
 				}
 				if !confirmed.Ack {
-					GLog.Error("[RMQ] publish, nack message %d, body.RoutingKey: %s, body.Message: %q", confirmed.DeliveryTag, body.RoutingKey, string(body.Message))
+					TraceError("[RMQ] publish, nack message %d, body.RoutingKey: %s, body.Message: %q", confirmed.DeliveryTag, body.RoutingKey, string(body.Message))
 				}
 				reading = messagesRead
 
@@ -478,7 +478,7 @@ func publishWithRoutingKey(sessions chan chan Session, messagesRead <-chan Messa
 						messagesWrite <- body // write back
 					}
 					pub.Close()
-					GLog.Error("[RMQ] publish, pub close, err: %s", err)
+					TraceError("[RMQ] publish, pub close, err: %s", err)
 					break Publish
 				}
 
@@ -486,7 +486,7 @@ func publishWithRoutingKey(sessions chan chan Session, messagesRead <-chan Messa
 				// all messages consumed
 				if !running {
 					c.SetPublishStatus(false)
-					GLog.Error("[RMQ] publish, close running")
+					TraceError("[RMQ] publish, close running")
 					return
 				}
 				// work on pending delivery until ack'd
@@ -520,7 +520,7 @@ func subscribe(sessions chan chan Session, handle CallBack, c *Client) {
 			false, // global
 		)
 		if err != nil {
-			GLog.Error("[RMQ] subscribe, cannot to set qos to: %q, err: %s", queue, err)
+			TraceError("[RMQ] subscribe, cannot to set qos to: %q, err: %s", queue, err)
 		}
 
 		// 2. Consume
@@ -534,10 +534,10 @@ func subscribe(sessions chan chan Session, handle CallBack, c *Client) {
 			nil,   // args
 		)
 		if err != nil {
-			GLog.Error("[RMQ] subscribe, cannot consume from: %q, %v", queue, err)
+			TraceError("[RMQ] subscribe, cannot consume from: %q, %v", queue, err)
 		}
 
-		GLog.Info("[RMQ] subscribe, subscribed...")
+		TraceInfo("[RMQ] subscribe, subscribed...")
 
 		for msg := range deliveries {
 			// handle msg
@@ -546,7 +546,7 @@ func subscribe(sessions chan chan Session, handle CallBack, c *Client) {
 			}
 			err := sub.Ack(msg.DeliveryTag, false)
 			if err != nil {
-				GLog.Error("[RMQ] subscribe, ack failed, err: %s", err)
+				TraceError("[RMQ] subscribe, ack failed, err: %s", err)
 			}
 		}
 	}
