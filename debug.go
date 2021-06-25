@@ -19,39 +19,42 @@ var debugEnable bool
 
 type TraceFunc func(format string, level int, v ...interface{})
 
-var DoFunc TraceFunc = nil
+var UserTrace TraceFunc = nil
 
 func init() {
 	debugEnable = false
 	log.SetPrefix("[RMQ] TRACE: ")
-	log.SetFlags(log.Ldate | log.Lmicroseconds | log.Llongfile)
-}
-
-func AddDebugFunc(f TraceFunc) {
-	DoFunc = f
+	log.SetFlags(log.LstdFlags | log.Llongfile)
 }
 
 // Debug Enable debug
 func Debug(enable bool) {
 	debugEnable = enable
 }
+
+// SetUserDebug 配置其他日志输出
+func SetUserDebug(f TraceFunc) {
+	UserTrace = f
+}
+
+// TraceInfo 调试信息日志
 func TraceInfo(format string, v ...interface{}) {
 	if debugEnable {
-		log.Printf(format, v...)
+		if UserTrace != nil {
+			UserTrace(format, LevelInformational, v...)
+		} else {
+			log.Printf(format, v...)
+		}
 	}
 }
+
+// TraceError 错误日志
 func TraceError(format string, v ...interface{}) {
-	if DoFunc != nil {
-		DoFunc(format, LevelError, v)
-	}
-
 	if debugEnable {
-		log.Printf(format, v...)
+		if UserTrace != nil {
+			UserTrace(format, LevelError, v...)
+		} else {
+			log.Printf(format, v...)
+		}
 	}
-
-}
-
-//Deprecated: use SetDebugger instead
-func SetLogger(l ...interface{}) {
-
 }

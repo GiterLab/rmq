@@ -5,13 +5,39 @@ import (
 	"time"
 
 	"github.com/GiterLab/rmq"
+	"github.com/astaxie/beego/logs"
 )
 
-func main() {
+// GLog 全局日志变量
+var GLog *logs.BeeLogger
+
+const (
+	url      = "127.0.0.1:5672"
+	vhost    = "/"
+	username = "guest"
+	password = "guest"
+	exchange = "giterlab-pub-topic"
+)
+
+func main2() {
 	var msgChan chan rmq.MessageWithRoutingKey
+
+	// 设置日志
+	GLog = logs.NewLogger(10000)
+	GLog.SetLogger("console", `{"level":7}`)
+	GLog.EnableFuncCallDepth(true)
+	GLog.SetLogFuncCallDepth(3)
 
 	// 初始化 Rabbitmq 客户端
 	rmq.Debug(true)
+	rmq.SetUserDebug(func(format string, level int, v ...interface{}) {
+		switch level {
+		case rmq.LevelInformational:
+			GLog.Info(format, v...)
+		case rmq.LevelError:
+			GLog.Error(format, v...)
+		}
+	})
 	c := rmq.NewClient()
 	c.SetURL(url, vhost, username, password)
 	c.SetExchange(exchange, rmq.ExchangeTopic)
