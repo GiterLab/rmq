@@ -2,7 +2,7 @@ package main
 
 import (
 	"github.com/GiterLab/rmq"
-	"github.com/astaxie/beego/logs"
+	"github.com/beego/beego/v2/core/logs"
 )
 
 // GLog 全局日志变量
@@ -16,7 +16,7 @@ const (
 	exchange = "giterlab-pub-topic"
 )
 
-func main3() {
+func main() {
 	// 设置日志
 	GLog = logs.NewLogger(10000)
 	GLog.SetLogger("console", `{"level":7}`)

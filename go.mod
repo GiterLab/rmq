@@ -1,9 +1,14 @@
 module github.com/GiterLab/rmq
 
-go 1.16
+go 1.17
 
 require (
-	github.com/astaxie/beego v1.12.3
-	github.com/streadway/amqp v1.0.0
-	golang.org/x/net v0.0.0-20210614182718-04defd469f4e
+	github.com/beego/beego/v2 v2.1.0
+	github.com/streadway/amqp v1.1.0
+	golang.org/x/net v0.12.0
+)
+
+require (
+	github.com/pkg/errors v0.9.1 // indirect
+	github.com/shiena/ansicolor v0.0.0-20200904210342-c7312218db18 // indirect
 )

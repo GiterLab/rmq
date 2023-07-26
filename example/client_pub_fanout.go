@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/GiterLab/rmq"
-	"github.com/astaxie/beego/logs"
+	"github.com/beego/beego/v2/core/logs"
 )
 
 // GLog 全局日志变量
@@ -19,7 +19,7 @@ const (
 	exchange = "giterlab-pub-fanout"
 )
 
-func main1() {
+func main() {
 	var msgChan chan rmq.Message
 
 	// 设置日志
