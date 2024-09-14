@@ -38,6 +38,10 @@ func main() {
 	c.SetExchange(exchange, rmq.ExchangeTopic)
 	c.SetRoutingKey("sub2")
 	c.SetQueueName("giterlab-queue-sub2")
+	c.SetQueueType(rmq.QueueTypeClassic)
+	c.SetQueueDurable(true)
+	c.SettQueuAutoDelete(false)
+	c.SetDeliveryMode(rmq.Persistent)
 	c.SetQos(10)
 	c.Info()
 

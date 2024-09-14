@@ -46,6 +46,9 @@ type Client struct {
 	ExchangeType        string // type of exchange
 	QueueBindEnable     bool   // enable or disable queue bind
 	QueueName           string // name of queue
+	QueueType           string // type of queue, classic/quorum/stream
+	QueueDurable        bool   // durable queue
+	QueueAutoDelete     bool   // auto delete queue
 	RoutingKey          string // routing key of queue
 	Qos                 int    // qos of subscribe
 	MsgExpirationEnable bool   // enable or disable message expiration
@@ -79,8 +82,23 @@ func (c *Client) SetQueueBindEnable(enable bool) {
 }
 
 // SetQueueName 设置队列名称
-func (c *Client) SetQueueName(q string) {
-	c.QueueName = q
+func (c *Client) SetQueueName(qName string) {
+	c.QueueName = qName
+}
+
+// SetQueueType 设置队列类型
+func (c *Client) SetQueueType(qType string) {
+	c.QueueType = qType
+}
+
+// SetQueueDurable 设置队列是否持久化
+func (c *Client) SetQueueDurable(durable bool) {
+	c.QueueDurable = durable
+}
+
+// SettQueuAutoDelete 设置是否自动删除队列
+func (c *Client) SettQueuAutoDelete(auto bool) {
+	c.QueueAutoDelete = auto
 }
 
 // SetRoutingKey 设置routingKey
@@ -125,6 +143,9 @@ func (c *Client) Info() {
 	fmt.Println("rmq exchange type:", c.ExchangeType)
 	fmt.Println("rmq queue bind enable:", c.QueueBindEnable)
 	fmt.Println("rmq queue name:", c.QueueName)
+	fmt.Println("rmq queue type:", c.QueueType)
+	fmt.Println("rmq queue durable:", c.QueueDurable)
+	fmt.Println("rmq queue auto delete:", c.QueueAutoDelete)
 	fmt.Println("rmq routing key:", c.RoutingKey)
 	fmt.Println("rmq qos:", c.Qos)
 	fmt.Println("rmq msg expiration enable:", c.MsgExpirationEnable)
@@ -136,6 +157,9 @@ func (c *Client) Info() {
 	TraceInfo("[RMQ] info, exchange type: %s", c.ExchangeType)
 	TraceInfo("[RMQ] info, queue bind enable: %v", c.QueueBindEnable)
 	TraceInfo("[RMQ] info, queue name: %s", c.QueueName)
+	TraceInfo("[RMQ] info, queue type: %s", c.QueueType)
+	TraceInfo("[RMQ] info, queue durable: %v", c.QueueDurable)
+	TraceInfo("[RMQ] info, queue auto delete: %v", c.QueueAutoDelete)
 	TraceInfo("[RMQ] info, routing key: %s", c.RoutingKey)
 	TraceInfo("[RMQ] info, qos: %d", c.Qos)
 	TraceInfo("[RMQ] info, msg expiration enable: %v", c.MsgExpirationEnable)
@@ -152,6 +176,9 @@ func NewClient() *Client {
 		ExchangeType:        ExchangeFanout,
 		QueueBindEnable:     true,
 		QueueName:           "",
+		QueueType:           QueueTypeClassic,
+		QueueDurable:        true,
+		QueueAutoDelete:     false,
 		RoutingKey:          "GiterLab",
 		Qos:                 1,
 		MsgExpirationEnable: false,
@@ -273,26 +300,38 @@ func redial(ctx context.Context, c *Client) chan chan Session {
 
 			// 是否需要绑定消息队列
 			if c.QueueBindEnable {
+				args := make(map[string]interface{})
+
+				// 设置消息类型
+				switch c.QueueType {
+				case QueueTypeClassic:
+					args[amqp.QueueTypeArg] = amqp.QueueTypeClassic
+				case QueueTypeQuorum:
+					args[amqp.QueueTypeArg] = amqp.QueueTypeQuorum
+				case QueueTypeStream:
+					args[amqp.QueueTypeArg] = amqp.QueueTypeStream
+				default:
+					args[amqp.QueueTypeArg] = amqp.QueueTypeClassic
+				}
+
 				// 设置消息过期时间
 				// 默认7天
-				arg := make(map[string]interface{})
-				if c.ExpirationTime != 0 {
-					arg["x-message-ttl"] = c.ExpirationTime
-				} else {
-					arg["x-message-ttl"] = int32(7 * 24 * 60 * 60 * 1000)
-				}
-				if !c.MsgExpirationEnable {
-					arg = nil
+				if c.MsgExpirationEnable {
+					if c.ExpirationTime != 0 {
+						args[amqp.QueueMessageTTLArg] = c.ExpirationTime
+					} else {
+						args[amqp.QueueMessageTTLArg] = int32(7 * 24 * 60 * 60 * 1000)
+					}
 				}
 
 				// 2. Declare queue
 				q, err := ch.QueueDeclare(
-					c.QueueName, // name
-					true,        // durable
-					false,       // delete when unused
-					false,       // exclusive
-					false,       // no-wait
-					arg,         // arguments
+					c.QueueName,       // name
+					c.QueueDurable,    // durable
+					c.QueueAutoDelete, // auto-deleted
+					false,             // exclusive
+					false,             // no-wait
+					args,              // arguments
 				)
 				if err != nil {
 					TraceError("[RMQ] redial, cannot consume from exclusive queue: %q, err: %s", c.QueueName, err)
@@ -381,7 +420,9 @@ func publish(sessions chan chan Session, messagesRead <-chan Message, messagesWr
 				reading = messagesRead
 
 			case body = <-pending:
-				err := pub.Publish(c.Exchange, "duoxieyun", false, false, amqp.Publishing{
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				err := pub.PublishWithContext(ctx, c.Exchange, "duoxieyun", false, false, amqp.Publishing{
 					ContentType:  "text/plain",
 					Body:         body,
 					DeliveryMode: c.DeliveryMode, // 数据持久化, 默认是 2 持久
@@ -464,7 +505,9 @@ func publishWithRoutingKey(sessions chan chan Session, messagesRead <-chan Messa
 				reading = messagesRead
 
 			case body = <-pending:
-				err := pub.Publish(c.Exchange, body.RoutingKey, false, false, amqp.Publishing{
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				err := pub.PublishWithContext(ctx, c.Exchange, body.RoutingKey, false, false, amqp.Publishing{
 					ContentType:  "text/plain",
 					Body:         body.Message,
 					DeliveryMode: c.DeliveryMode, // 数据持久化, 默认是 2 持久

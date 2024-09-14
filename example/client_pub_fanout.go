@@ -43,6 +43,10 @@ func main() {
 	c.SetExchange(exchange, rmq.ExchangeFanout)
 	c.SetRoutingKey("giterlab")
 	c.SetQueueName("giterlab-queue")
+	c.SetQueueType(rmq.QueueTypeClassic)
+	c.SetQueueDurable(true)
+	c.SettQueuAutoDelete(false)
+	c.SetDeliveryMode(rmq.Persistent)
 	c.Info()
 
 	// 发布消息
